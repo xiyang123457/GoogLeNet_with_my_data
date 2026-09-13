@@ -37,7 +37,7 @@ def train_val_data_process():
     train_transform = transforms.Compose([
         transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
         transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        # transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),  # 第一轮：暂时关闭，观察是否为欠拟合元凶
         transforms.ToTensor(),
         normalize,
     ])
@@ -76,7 +76,7 @@ def train_model_process(model, train_dataloader, val_dataloader, num_epochs):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)  # 调试时务必看一眼
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.002, weight_decay=1e-4)  # 权重衰减抑制过拟合
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.002, weight_decay=1e-5)  # 第一轮：weight_decay 从 1e-4 降到 1e-5
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)  # 标签平滑，降低对训练样本过度自信
     # 验证集指标停滞时自动降低学习率，帮助跳出平台
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max',

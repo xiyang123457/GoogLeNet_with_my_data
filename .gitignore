@@ -1,0 +1,14 @@
+# 数据集（2023 张猫狗图片，体积大，不纳入版本控制）
+data/
+
+# 训练产物：模型权重
+*.pth
+best_model.pth
+
+# Python 缓存
+__pycache__/
+
+# IDE / 工具
+.idea/
+.vscode/
+.codebuddy/

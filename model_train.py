@@ -32,22 +32,40 @@ def train_val_data_process():
     # （IQR 已剔除异常图）。如需随数据变化自动重算，可 import 该脚本动态计算。
     normalize = transforms.Normalize(mean=[0.481451, 0.447649, 0.407904],
                                      std=[0.256604, 0.247922, 0.250483])
-    # 定义数据集处理方法变量
-    train_transform = transforms.Compose([transforms.Resize((224, 224)),
-                                          transforms.ToTensor(),
-                                          normalize])
-    # 加载数据集
-    train_data = ImageFolder(ROOT_TRAIN, transform=train_transform)
-    train_data, val_data = Data.random_split(train_data, [round(0.8 * len(train_data)), round(0.2 * len(train_data))])
 
-    train_dataloader = Data.DataLoader(dataset=train_data,
+    # 训练集：数据增强（增强作用于 PIL 图，放在 ToTensor/Normalize 之前）
+    train_transform = transforms.Compose([
+        transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        transforms.ToTensor(),
+        normalize,
+    ])
+    # 验证集：纯净变换，不做增强（避免增强泄漏到验证集、扭曲评估分布）
+    val_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        normalize,
+    ])
+
+    # 同一份固定 seed 切分，保证 train/val 严格不重叠、可复现
+    full = ImageFolder(ROOT_TRAIN)
+    train_idx, val_idx = Data.random_split(
+        range(len(full)),
+        [int(0.8 * len(full)), len(full) - int(0.8 * len(full))],
+        generator=torch.Generator().manual_seed(42),
+    )
+    train_ds = ImageFolder(ROOT_TRAIN, transform=train_transform)
+    val_ds = ImageFolder(ROOT_TRAIN, transform=val_transform)
+
+    train_dataloader = Data.DataLoader(dataset=Data.Subset(train_ds, train_idx),
                                        batch_size=128,
                                        shuffle=True,
                                        num_workers=2)
 
-    val_dataloader = Data.DataLoader(dataset=val_data,
+    val_dataloader = Data.DataLoader(dataset=Data.Subset(val_ds, val_idx),
                                      batch_size=128,
-                                     shuffle=True,
+                                     shuffle=False,
                                      num_workers=2)
 
     return train_dataloader, val_dataloader
@@ -58,8 +76,11 @@ def train_model_process(model, train_dataloader, val_dataloader, num_epochs):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)  # 调试时务必看一眼
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.002)  # 设置优化器,lr是学习率
-    criterion = nn.CrossEntropyLoss()  # 交叉熵损失函数
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.002, weight_decay=1e-4)  # 权重衰减抑制过拟合
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)  # 标签平滑，降低对训练样本过度自信
+    # 验证集指标停滞时自动降低学习率，帮助跳出平台
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max',
+                                                           factor=0.5, patience=5)
 
     model = model.to(device)
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -67,6 +88,9 @@ def train_model_process(model, train_dataloader, val_dataloader, num_epochs):
     # 初始化参数
     # 最高准确度
     best_acc = 0.0
+    # 早停：连续 early_stop_patience 轮验证准确率无提升则停止
+    early_stop_patience = 10
+    epochs_no_improve = 0
     # 训练集损失列表
     train_loss_all = []
     # 验证集损失列表
@@ -143,10 +167,19 @@ def train_model_process(model, train_dataloader, val_dataloader, num_epochs):
         print('{} Train Loss: {:.4f} Train Acc: {:.4f}'.format(epoch, train_loss_all[-1], train_acc_all[-1]))
         print('{} Val Loss: {:.4f} Val Acc: {:.4f}'.format(epoch, val_loss_all[-1], val_acc_all[-1]))
 
+        # 学习率调度：根据验证准确率调整
+        scheduler.step(val_acc_all[-1])
+
         # 保存最高准确度
         if val_acc_all[-1] > best_acc:
             best_acc = val_acc_all[-1]
             best_model_wts = copy.deepcopy(model.state_dict())
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+            if epochs_no_improve >= early_stop_patience:
+                print("Early stopping: 连续 {} 轮验证准确率无提升，停止训练。".format(early_stop_patience))
+                break
 
         # 训练
         time_use = time.time() - since

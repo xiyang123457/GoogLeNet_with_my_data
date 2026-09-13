@@ -10,24 +10,30 @@ class Inception(nn.Module):
 
         # 路线1，1x1的卷积层
         self.p1_1 = nn.Conv2d(in_channels=in_channels, out_channels=c1, kernel_size=1)
+        self.p1_bn = nn.BatchNorm2d(c1)
 
         # 路线2，1x1卷积层,3x3卷积层
         self.p2_1 = nn.Conv2d(in_channels=in_channels, out_channels=c2[0], kernel_size=1)
+        self.p2_1_bn = nn.BatchNorm2d(c2[0])
         self.p2_2 = nn.Conv2d(in_channels=c2[0], out_channels=c2[1], kernel_size=3, padding=1)
+        self.p2_2_bn = nn.BatchNorm2d(c2[1])
 
         # 路线3，1x1卷积层,5x5卷积层
         self.p3_1 = nn.Conv2d(in_channels=in_channels, out_channels=c3[0], kernel_size=1)
+        self.p3_1_bn = nn.BatchNorm2d(c3[0])
         self.p3_2 = nn.Conv2d(in_channels=c3[0], out_channels=c3[1], kernel_size=5, padding=2)
+        self.p3_2_bn = nn.BatchNorm2d(c3[1])
 
         # 路线4，3x3最大池化，1x1卷积层
         self.p4_1 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
         self.p4_2 = nn.Conv2d(in_channels=in_channels, out_channels=c4, kernel_size=1)
+        self.p4_2_bn = nn.BatchNorm2d(c4)
 
     def forward(self, x):
-        p1 = self.ReLU(self.p1_1(x))
-        p2 = self.ReLU(self.p2_2(self.ReLU(self.p2_1(x))))
-        p3 = self.ReLU(self.p3_2(self.ReLU(self.p3_1(x))))
-        p4 = self.ReLU(self.p4_2(self.p4_1(x)))
+        p1 = self.ReLU(self.p1_bn(self.p1_1(x)))
+        p2 = self.ReLU(self.p2_2_bn(self.p2_2(self.ReLU(self.p2_1_bn(self.p2_1(x))))))
+        p3 = self.ReLU(self.p3_2_bn(self.p3_2(self.ReLU(self.p3_1_bn(self.p3_1(x))))))
+        p4 = self.ReLU(self.p4_2_bn(self.p4_2(self.p4_1(x))))
 
         return torch.cat((p1, p2, p3, p4), 1)  # 1表示在通道的维度上进行合并
 
@@ -37,14 +43,17 @@ class GoogLeNet(nn.Module):
         super(GoogLeNet, self).__init__()
         self.b1 = nn.Sequential(
             nn.Conv2d(in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         )
 
         self.b2 = nn.Sequential(
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=1, stride=1, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(in_channels=64, out_channels=192, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(192),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         )

@@ -76,7 +76,7 @@ def train_model_process(model, train_dataloader, val_dataloader, num_epochs):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)  # 调试时务必看一眼
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.002, weight_decay=1e-5)  # 第一轮：weight_decay 从 1e-4 降到 1e-5
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-5)  # 第二轮：加 BN 后 lr 降到 0.001 更稳
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)  # 标签平滑，降低对训练样本过度自信
     # 验证集指标停滞时自动降低学习率，帮助跳出平台
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max',

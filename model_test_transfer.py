@@ -13,29 +13,28 @@ from sklearn.metrics import (
     average_precision_score,
     classification_report,
 )
-from model import GoogLeNet, Inception
+from model_transfer import build_transfer_model
 
 # ============================================================
-# 手写从零 GoogLeNet 版测试脚本（适配本项目猫狗二分类）
-# 测试对象：model.GoogLeNet(Inception) 从零训练的权重 best_model.pth
-# 对应的训练脚本：model_train.py
-# （原版是测 FashionMNIST 的，这里保留原测试函数结构，仅把数据/模型/归一化换成项目实际配置）
+# 迁移学习版测试脚本
+# 测试对象：model_transfer.build_transfer_model 训练的权重 best_model_transfer.pth
+# （torchvision 官方 GoogLeNet 预训练 + 冻结主干 + 微调 fc + 最后 3 个 Inception）
+# 对应的训练脚本：train_transfer.py
 # ============================================================
 
 # 路径约定与训练脚本一致（以本文件所在目录为基准）
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-# 手写从零 GoogLeNet 训练得到的权重（区别于迁移学习 best_model_transfer.pth）
-BEST_MODEL_PATH = os.path.join(PROJECT_DIR, 'best_model.pth')
+# 迁移学习训练得到的权重（不要和手写版 best_model.pth 混淆）
+BEST_MODEL_PATH = os.path.join(PROJECT_DIR, 'best_model_transfer.pth')
 # 自己二分类数据的【独立测试集】目录（ImageFolder 结构：每个类别一个子文件夹）。
 # 默认用 data/test（与 data/train 互不重叠，评估结果才可信）；
 # 若没有独立测试集，再把它改回 data/train 做整体评估即可。
 TEST_ROOT = os.path.join(PROJECT_DIR, 'data', 'test')
 
-# 与手写版训练一致的预处理：使用对本数据集统计得到的归一化常数
-# （compute_mean_std.py 在 data/ 全量上的统计结果）。
-# 切勿换成 ImageNet 常数，那是迁移学习用的，手写随机初始化权重不适用。
-normalize = transforms.Normalize(mean=[0.481451, 0.447649, 0.407904],
-                                 std=[0.256604, 0.247922, 0.250483])
+# 与训练一致的预处理：ImageNet 归一化常数（模型内部 transform_input 配合），
+# 绝不能用手写版那套 [0.481,0.447,0.407]，否则分布错配精度崩。
+normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
 test_transform = transforms.Compose([
     transforms.Lambda(lambda img: img.convert('RGB')),  # 兼容灰度图，保证 3 通道
     transforms.Resize((224, 224)),
@@ -78,7 +77,7 @@ def _set_chinese_font():
 def test_model_process(model, test_dataloader):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
-    model.eval()  # BN 用 running stats
+    model.eval()  # 关闭 dropout、BN 用 running stats
 
     classes = test_dataloader.dataset.classes
     # 二分类评估约定：正类 = 图片里有猫（cats），用于 ROC/PR 与混淆矩阵
@@ -238,14 +237,14 @@ def plot_test_results(test_acc, y_true, y_pred, y_score, classes, save_path,
 if __name__ == '__main__':
     test_dataloader, classes = test_data_process()
 
-    # 构建手写 GoogLeNet 结构（输出 2 类），再载入从零训练权重
-    model = GoogLeNet(Inception)
+    # 构建与训练时完全一致的结构（fc 输出 2 类），再载入迁移学习权重
+    model = build_transfer_model()
     model.load_state_dict(torch.load(BEST_MODEL_PATH, map_location='cpu'))
 
     # 一次性完成：整体准确率、分类报告、混淆矩阵、逐样本 ROC/PR 数据
     test_acc, y_true, y_pred, y_score, classes = \
         test_model_process(model, test_dataloader)
 
-    save_path = os.path.join(PROJECT_DIR, 'result', 'model_test.png')
+    save_path = os.path.join(PROJECT_DIR, 'result', 'model_transfer_test.png')
     plot_test_results(test_acc, y_true, y_pred, y_score, classes, save_path,
-                      title='GoogLeNet (from scratch) Test')
+                      title='Transfer Learning Test')

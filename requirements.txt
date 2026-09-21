@@ -1,0 +1,37 @@
+# GoogLeNet 猫狗分类 —— 运行环境依赖
+# 版本号取自本项目实际使用的环境：conda env `pytorch`（Windows，Python 3.10.19）。
+#
+# 安装：
+#   pip install -r requirements.txt
+# 只想跑 tools/ 下的两个辅助脚本时不需要 torch，只要 numpy + pillow 即可。
+#
+# ⚠️ torch / torchvision 的可用版本取决于平台与 CUDA 版本，因此这两个包
+#    建议单独按官方指引安装（其余包直接由本文件安装）。本项目实际使用的是
+#    CUDA 13.0 构建；换成 CPU 版也能跑通，只是慢（训练脚本会在
+#    torch.cuda.is_available() 为 False 时自动回退 CPU）。
+#
+#   CUDA 13.0（本项目实际使用）：
+#     pip install torch==2.9.0 torchvision==0.24.0 --index-url https://download.pytorch.org/whl/cu130
+#   CPU：
+#     pip install torch==2.9.0 torchvision==0.24.0 --index-url https://download.pytorch.org/whl/cpu
+#   最新安装指引：https://pytorch.org/get-started/locally/
+
+# ---- 模型与训练（model*.py / train_transfer.py）----
+torch==2.9.0
+torchvision==0.24.0
+
+# ---- 数据与绘图 ----
+numpy==2.2.6
+pandas==2.3.3              # 训练脚本用 DataFrame 组织逐 epoch 曲线数据
+matplotlib==3.10.9         # 训练曲线与测试三子图（需中文字体，脚本内自动查找）
+
+# ---- 评估指标（model_test*.py）----
+scikit-learn==1.7.2        # confusion_matrix / roc_curve / precision_recall_curve 等
+
+# ---- tools/compute_mean_std.py ----
+pillow==12.0.0
+
+# ---- model.py ----
+# 仅在 __main__ 中用来打印网络结构，但 import 写在文件顶部（见 README「已知限制」）。
+# 该项目已停止维护，可平滑替换为同接口的 torchinfo。
+torchsummary==1.5.1

@@ -1,0 +1,83 @@
+{
+  "_note": "README.md「结果」一节中关键数字的结构化版本，便于程序读取与跨实验对比。",
+  "_caveat": "以下数值来自补充全局随机种子之前的运行，且 best_model.pth 已被后续重跑覆盖，无法复现。详见 README.md「已知限制」第 1、6 条。",
+  "_status": "archived",
+  "_archived_at": "2026-09-21",
+
+  "dataset": {
+    "name": "Cat and Dog (Kaggle: tongpython/cat-and-dog)",
+    "license": "CC0: Public Domain",
+    "used_total": 2025,
+    "train_dir": { "total": 1721, "cats": 860, "dogs": 861 },
+    "test_dir":  { "total": 304,  "cats": 152, "dogs": 152 },
+    "train_val_split": {
+      "train": 1376,
+      "val": 345,
+      "seed": 42,
+      "note": "由 data/train 按 80/20 切分；data/test 为独立测试集，与二者互不重叠"
+    },
+    "subset_provenance": "未记录。2025 张的筛选与去重过程没有留下脚本或日志"
+  },
+
+  "runs": [
+    {
+      "name": "from_scratch",
+      "display_name": "从零手写 GoogLeNet（最终版）",
+      "model": "手写 Inception 多尺度模块 + GoogLeNet",
+      "epochs_run": 40,
+      "gradient_steps_total": 440,
+      "optimizer": "AdamW(lr=1e-3, weight_decay=1e-5)",
+      "scheduler": "ReduceLROnPlateau(mode=max, factor=0.5, patience=5)",
+      "early_stop": "patience=10，信号为 val accuracy",
+      "normalize": "数据集自统计 mean=[0.481451,0.447649,0.407904] std=[0.256604,0.247922,0.250483]",
+      "source_image": "result/model_test.png",
+      "test_accuracy": 0.8224,
+      "f1": { "cats": 0.8138, "dogs": 0.8302 },
+      "misclassified": 54,
+      "confusion_matrix_pos_class_cats": { "TP": 118, "FN": 34, "FP": 20, "TN": 132 },
+      "weak_class": "cats (recall 0.776)",
+      "note": "用现存 best_model.pth 重新计算得到 0.8257（cats F1 0.8328 / dogs F1 0.8178，错误较多的类别变为 dogs）。两者来源不同，历史数值无法还原。"
+    },
+    {
+      "name": "transfer",
+      "display_name": "ImageNet 预训练 GoogLeNet + 微调",
+      "model": "torchvision googlenet(weights=IMAGENET1K_V1)，fc 替换为 2 类",
+      "frozen": "全部冻结，再解冻 fc + 最后 3 个 Inception（inception4e / 5a / 5b）",
+      "trainable_ratio": "约 55% 参数",
+      "epochs_run": 9,
+      "gradient_steps_total": 99,
+      "optimizer": "AdamW 分层学习率：fc 1e-3 / features 1e-4，weight_decay=1e-4",
+      "scheduler": "ReduceLROnPlateau(mode=max, factor=0.5, patience=5)",
+      "early_stop": "patience=8，信号为 val accuracy",
+      "normalize": "ImageNet mean=[0.485,0.456,0.406] std=[0.229,0.224,0.225]",
+      "source_image": "result/model_transfer_test.png",
+      "test_accuracy": 0.9704,
+      "f1": { "cats": 0.9711, "dogs": 0.9697 },
+      "misclassified": 9,
+      "confusion_matrix_pos_class_cats": { "FP": 8, "FN": 1 },
+      "best_epoch": 0,
+      "best_val_accuracy": 0.991,
+      "note": "val acc 最高出现在第 0 轮（0.991），之后 8 轮在 0.985–0.991 之间波动。345 张验证集上单个样本对应 0.29%，该波动属于噪声区间。因此所选「最优模型」约等于只训练了 1 个 epoch，更接近 linear probe 而非 fine-tune。"
+    }
+  ],
+
+  "comparison": {
+    "accuracy_delta": 0.1480,
+    "relative_gain": "约 18%",
+    "f1_delta": { "cats": 0.1573, "dogs": 0.1395 },
+    "misclassified_delta": -45,
+    "misclassified_reduction": "-83%",
+    "confidence_interval_95pct": {
+      "from_scratch": [0.779, 0.865],
+      "transfer": [0.951, 0.989],
+      "note": "二项分布正态近似，n=304。两者区间不重叠，说明迁移学习更优这一结论可靠；但细粒度结论（如哪一类错误更多）不可靠。"
+    }
+  },
+
+  "reproducibility": {
+    "global_seed": "utils.py 中已补充 set_seed()，但本文件的数值来自补充种子之前的运行",
+    "checkpoint": "无",
+    "weights_in_repo": false,
+    "training_curves": "result/ 下 5 张为 matplotlib 窗口截图，不是 savefig 的输出"
+  }
+}

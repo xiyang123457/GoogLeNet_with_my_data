@@ -69,7 +69,7 @@ python split_dataset.py --data_dir ./data --seed 42
 ### 运行示例（针对 GoogLeNet 猫狗数据）
 
 ```powershell
-python split_dataset.py --data_dir "D:\pytorch_test\GoogLeNet_with_my_data\data"
+python split_dataset.py --data_dir "D:\pytorch_test\GoogLeNet-scratch-vs-transfer\data"
 ```
 
 ## 作为库复用

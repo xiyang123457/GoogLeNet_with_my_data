@@ -1,12 +1,16 @@
 # GoogLeNet 猫狗分类：从零训练 vs 迁移学习
 
-> 用 1721 张猫狗照片做了一次对照实验：手写 GoogLeNet 从零训到 **82.24%**，换成 ImageNet 迁移学习后 **97.04%** —— 准确率 **+14.8 个百分点**，误判从 54 张降到 9 张（**-83%**），而真正的差别只在一件事：特征提取器是随机初始化，还是站在 ImageNet 的肩膀上。
+1721 张猫狗照片上的一组对照实验：手写 GoogLeNet（Inception 多尺度模块）从零训练得到 82.24%，改用 ImageNet 预训练权重后得到 97.04%，误判样本由 54 张减至 9 张。两组实验的唯一区别是特征提取器的初始化方式。
+
+本仓库已归档，不再更新。`tools/` 下的两个数据管线脚本（分层划分、IQR 剔除异常后统计 `mean/std`）可以独立复用，模型部分用于验证这两个脚本。
+
+> 9 条已知限制见「已知限制」一节。其中第 5、6 条说明了为什么 82.24% 这个数字不能直接作为结论引用。
 
 ![demo](result/model_transfer_test.png)
 
 迁移版在测试集（304 张）上的输出：混淆矩阵 + ROC + PR 三子图，仅 9 张误判，两条曲线紧贴左上角。
 
-> **数值口径提醒**：从零版的 82.24% 是 `result/model_test.png` 这一次运行的记录；仓库中现存的 `best_model.pth` 已被后续重跑覆盖，用它重算得 82.57%（弱项类别也从"猫"变成"狗"）。详见「已知限制」第 6 条。
+> **关于这两个数字**：从零版的 82.24% 是 `result/model_test.png` 这一次运行的记录；仓库中现存的 `best_model.pth` 已被后续重跑覆盖，用它重算得 82.57%（错误较多的类别也从"猫"变成"狗"）。详见「已知限制」第 6 条。
 
 ---
 
@@ -14,7 +18,7 @@
 
 手里只有**一千多张**猫狗照片，却想训一个像 GoogLeNet 这样有几百万参数的深度网络。
 
-这是小数据场景最典型的困境：模型容量远大于数据量，从随机初始化开始训练，它不会"学不会"，而是会**把训练集背下来**——训练损失一路下降，验证指标早早停滞，两者之间拉开一道明显的间隙（见基线训练曲线 `result/model_control_train.png`）。
+这是小数据场景的典型困境：模型容量远大于数据量，从随机初始化开始训练时，模型并非学不会，而是会记住训练集——训练损失持续下降，验证指标早早停滞，两者之间出现明显间隙（见基线训练曲线 `result/model_control_train.png`）。
 
 所以真正想回答的问题不是"GoogLeNet 能不能做猫狗分类"，而是：
 
@@ -230,12 +234,12 @@ Normalize 可用参数：
 
 ## 使用说明
 
-在 `GoogLeNet_with_my_data/` 目录下执行：
+在仓库根目录下执行：
 
 | 目的 | 命令 | 产物 |
 |------|------|------|
-| 从零训练 | `python model_train.py` | 权重 `best_model.pth`（训练曲线为弹窗，未落盘，见「已知限制」第 7 条） |
-| 迁移训练 | `python train_transfer.py` | 权重 `best_model_transfer.pth`（训练曲线为弹窗） |
+| 从零训练 | `python model_train.py` | 权重 `best_model.pth` + 曲线 `result/curve_scratch.png` |
+| 迁移训练 | `python train_transfer.py` | 权重 `best_model_transfer.pth` + 曲线 `result/curve_transfer.png` |
 | 从零测试 | `python model_test.py` | `result/model_test.png`（弹窗 + 落盘） |
 | 迁移测试 | `python model_test_transfer.py` | `result/model_transfer_test.png`（弹窗 + 落盘） |
 
@@ -249,21 +253,26 @@ Normalize 可用参数：
 ## 项目结构
 
 ```
-GoogLeNet_with_my_data/
+GoogLeNet-scratch-vs-transfer/
 ├── model.py                 # 从零版网络：手写 Inception 多尺度模块 + GoogLeNet
 ├── model_train.py           # 从零版训练（增强 / AdamW / 早停 / 学习率调度）
 ├── model_test.py            # 从零版测试：混淆矩阵 + ROC + PR + 分类报告
 ├── model_transfer.py        # 迁移版网络：加载预训练、换 fc、冻结/解冻
 ├── train_transfer.py        # 迁移版训练：分层学习率、冻结层保持 eval()
 ├── model_test_transfer.py   # 迁移版测试与可视化
+├── utils.py                 # 共用工具：随机种子控制（set_seed / seed_worker）
 ├── tools/
 │   ├── split_dataset.py            # 分层抽样划分 train/test（默认 85%/15%）
 │   ├── compute_mean_std.py         # IQR 剔除异常后统计数据集 mean/std
 │   ├── split_dataset_README.md
 │   └── compute_mean_std_README.md
 ├── requirements.txt         # 依赖清单（Python 3.10 / torch 2.9.0）
-├── result/                  # 训练曲线与测试可视化（7 张图）
-├── data/                    # 数据集（ImageFolder 结构，由 .gitignore 排除）
+├── result/
+│   ├── metrics.json         # 关键指标的机器可读版本
+│   ├── curve_scratch.png    # 从零版训练曲线（重跑后生成）
+│   ├── curve_transfer.png   # 迁移版训练曲线（重跑后生成）
+│   └── *.png                # 7 张历史图（5 张窗口截图 + 2 张测试可视化）
+├── data/                    # 数据集（ImageFolder 结构，由 .gitignore 排除；data/README.md 除外）
 ├── 完整实验报告.md           # 面向老师的图文实验报告
 ├── 模型演进报告.md           # 按提交逐行讲解代码改动与动机
 └── README.md                # 本文件
@@ -283,19 +292,35 @@ GoogLeNet_with_my_data/
 
 ## 已知限制
 
-> 本节如实记录当前版本的短板。它们不影响"迁移学习远优于从零训练"这个主结论，但会直接影响绝对数值的可复现性与可信度。
+> 以下为当前版本已知的问题。它们不影响「迁移学习优于从零训练」这一主结论，但会影响绝对数值的可复现性与可信度。
 
-1. **无全局随机种子。** 仓库里只有切分用的 `torch.Generator().manual_seed(42)`；模型初始化、`DataLoader` 的 shuffle、Dropout 采样都不受控，重跑不会得到同一条曲线。
+1. **无全局随机种子。** 仓库里只有切分用的 `torch.Generator().manual_seed(42)`；模型初始化、`DataLoader` 的 shuffle、Dropout 采样都不受控，重跑不会得到同一条曲线。（已于 2026-09-21 修改代码，见下方「修复记录」）
 2. **无 checkpoint / 断点续训。** 训练脚本只保存验证集最优的 `state_dict`，没有逐 epoch 快照、没有 optimizer / scheduler 状态、没有 `--resume` 入口，中途断电即全白跑。
 3. **归一化统计量含测试集。** 从零版的 `mean/std` 由 `compute_mean_std.py` 在 `data/` **全量（train + test）** 上统计得到，属于轻微的测试集信息泄漏（低维统计量，影响很小）；严格做法是只用 `data/train` 统计。
-4. **早停 / 选模 / 学习率调度都以验证准确率为信号，而验证集只有 345 张**（`int(0.8 × 1721) = 1376`，`1721 − 1376 = 345`），1 个样本 = 0.29% 的准确率分辨率，噪声很大。迁移版上这个问题直接暴露：`result/model4_train.png` 第 0 轮 val acc ≈ 0.991 即为全程最高，`early_stop_patience=8` 于是在第 8 轮触发，**"最优模型"约等于只训了 1 个 epoch 的模型**。改用 val loss（连续量）做信号会稳健得多。
+4. **早停 / 选模 / 学习率调度都以验证准确率为信号，而验证集只有 345 张**（`int(0.8 × 1721) = 1376`，`1721 − 1376 = 345`），1 个样本 = 0.29% 的准确率分辨率，噪声很大。迁移版上这个问题直接暴露：`result/model4_train.png` 第 0 轮 val acc ≈ 0.991 即为全程最高，`early_stop_patience=8` 于是在第 8 轮触发，**"最优模型"约等于只训了 1 个 epoch 的模型**。改用 val loss（连续量）做信号会稳健得多。（已于 2026-09-21 修改代码，见下方「修复记录」）
 5. **训练预算不足，从零版远未收敛。** `batch_size=128` 配合 1376 张训练图 → 每 epoch 仅 **11 个梯度步**（优化1 共 28 epoch = 308 步，优化3 共 40 epoch = 440 步）。因此"数据规模是从零路线的精度上限"这一结论**不成立**：更准确的表述是"训练预算不足"与"初期训练不稳定（第 0 轮 loss 一度到 ~955/185/330）"两个候选原因尚未分离。
 6. **`best_model.pth` 已被后续重跑覆盖，从零版那套测试数值不可复现。** `result/model_test.png` 与文档中的 **82.24%**（cats F1 0.8138 / dogs F1 0.8302，弱项为**猫**）是当次运行的记录；用仓库现存的 `best_model.pth` 在 `data/test` 上重算，得到 **82.57%**（TP = 132 / FN = 20 / FP = 33 / TN = 119，cats F1 0.8328 / dogs F1 0.8178，弱项变成**狗**）。两者不同源，历史数值无法还原——这正是"无种子 + 无 checkpoint"的直接后果。
-7. **训练曲线是窗口截图。** 两个训练脚本的 `matplot_acc_loss()` 只调了 `plt.show()`、没有 `savefig`，所以 `result/` 下的 5 张训练曲线都是从 matplotlib 窗口截的图（能看到标题栏与工具栏）。此外基线图的 loss 面板被第 0 轮 ≈955 的离群点拉爆，实际不可读。
+7. **训练曲线是窗口截图。** 两个训练脚本的 `matplot_acc_loss()` 只调了 `plt.show()`、没有 `savefig`，所以 `result/` 下的 5 张训练曲线都是从 matplotlib 窗口截的图（能看到标题栏与工具栏）。此外基线图的 loss 面板被第 0 轮 ≈955 的离群点拉爆，实际不可读。（已于 2026-09-21 为 `matplot_acc_loss()` 增加 `save_path` 参数；下方 5 张历史截图未替换）
 8. **验证集准确率是"逐 epoch 取最大"，存在乐观偏差。** 文档中引用的 val acc（如 ≈0.88）是 40 个 epoch 中的最大值，不宜与无偏的 test acc 直接比较。
 9. **测试集仅 304 张（每类 152 张）。** 绝对准确率存在统计波动，结论应以两方案的相对差距为准。
 
-**后续修复方向（尚未执行）**：补 `set_seed()`；把早停 / 选模信号改为 val loss；归一化只用 `data/train` 重算；加 checkpoint 与 `savefig`；把 `batch_size` 降到 32–64、epoch 提到 100+ 重跑从零版以验证第 5 条；以"增强"为唯一变量做一次干净的 A/B；多 seed 报告 mean ± std；补失败案例分析。
+**修复记录（2026-09-21）**：
+
+| 项目 | 状态 | 说明 |
+|---|---|---|
+| 补充全局随机种子 | 已修改代码 | 新增 `utils.py`；两个训练脚本在 `__main__` 调用 `set_seed(42)`，并为 DataLoader 传入 `worker_init_fn` 与 `generator` |
+| 早停与选模改用验证损失 | 已修改代码 | `scheduler` 的 `mode` 由 `max` 改为 `min`；选模依据由 `best_acc` 改为 `best_loss` |
+| 训练曲线落盘 | 已修改代码 | `matplot_acc_loss()` 增加 `save_path` 参数，输出至 `result/curve_scratch.png` 与 `result/curve_transfer.png` |
+| 归一化统计仅使用 `data/train` | 未处理 | 需要重新训练 |
+| 增加 checkpoint | 未处理 | — |
+| 降低 `batch_size` 并提高 epoch 上限后重训从零版 | 未处理 | 用于验证第 5 条 |
+| 以数据增强为唯一变量做对照实验 | 未处理 | 需要重新训练 |
+| 多种子报告均值与标准差 | 不再处理 | 本项目作为示例工程，不追求统计结论 |
+| 失败样本分析 | 未处理 | — |
+
+> 上表前三项仅修改了代码，未重新训练。`result/` 下的 5 张训练曲线仍是旧截图，文中 82.24% 与 97.04% 两个数字也仍是补充随机种子之前那次运行的记录。重新训练后需一并更新这些数字和 `result/metrics.json`。
+
+**待办清单**（各项处理情况见上方「修复记录」）：补 `set_seed()`；把早停 / 选模信号改为 val loss；归一化只用 `data/train` 重算；加 checkpoint 与 `savefig`；把 `batch_size` 降到 32–64、epoch 提到 100+ 重跑从零版以验证第 5 条；以"增强"为唯一变量做一次干净的 A/B；多 seed 报告 mean ± std；补失败案例分析。
 
 ---
 

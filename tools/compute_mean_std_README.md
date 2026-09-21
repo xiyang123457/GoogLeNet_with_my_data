@@ -46,7 +46,7 @@ data/
 python compute_mean_std.py
 
 # 指定数据目录
-python compute_mean_std.py --data_dir "D:\pytorch_test\GoogLeNet_with_my_data\data"
+python compute_mean_std.py --data_dir "D:\pytorch_test\GoogLeNet-scratch-vs-transfer\data"
 
 # 调整异常判定强度（k 越大越宽松，剔除越少）
 python compute_mean_std.py --data_dir ./data --iqr_k 2.0
@@ -65,7 +65,7 @@ python compute_mean_std.py --data_dir ./data --no_recursive
 
 ```
 ==== 数据集均值/标准差统计 ====
-图片目录    : D:\pytorch_test\GoogLeNet_with_my_data\data
+图片目录    : D:\pytorch_test\GoogLeNet-scratch-vs-transfer\data
 通道数      : 3
 图片总数    : 2025
 成功解码    : 2025

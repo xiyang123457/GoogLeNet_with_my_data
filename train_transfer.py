@@ -10,6 +10,7 @@ import torch
 from torch import nn
 from torch.optim import AdamW
 from model_transfer import build_transfer_model
+from utils import set_seed, seed_worker  # 共用工具：随机种子控制（见 utils.py 文件头说明）
 
 # =====================================================================
 # 路径策略：以本代码文件所在目录为基准（相对定位，不写死盘符）
@@ -50,15 +51,26 @@ def train_val_data_process():
     train_ds = ImageFolder(ROOT_TRAIN, transform=train_transform)
     val_ds = ImageFolder(ROOT_TRAIN, transform=val_transform)
 
+    # 变量 g：torch.Generator，专门给 DataLoader 的 shuffle 顺序和 worker 播种用。
+    #   例：g.manual_seed(42) 之后，每个 epoch 的 shuffle 顺序完全一致
+    # 为什么不复用上面 random_split 的那个 Generator：那是临时对象且状态已被
+    #   消耗过；这里用独立的新 Generator，职责清晰、互不干扰。
+    g = torch.Generator()
+    g.manual_seed(42)
+
     train_dataloader = Data.DataLoader(dataset=Data.Subset(train_ds, train_idx),
                                        batch_size=128,
                                        shuffle=True,
-                                       num_workers=2)
+                                       num_workers=2,
+                                       worker_init_fn=seed_worker,
+                                       generator=g)
 
     val_dataloader = Data.DataLoader(dataset=Data.Subset(val_ds, val_idx),
                                      batch_size=128,
                                      shuffle=False,
-                                     num_workers=2)
+                                     num_workers=2,
+                                     worker_init_fn=seed_worker,
+                                     generator=g)
 
     return train_dataloader, val_dataloader
 
@@ -78,13 +90,23 @@ def train_model_process(model, train_dataloader, val_dataloader, num_epochs):
         {'params': feat_params, 'lr': 1e-4},
     ], weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-    # 验证集指标停滞时自动降低学习率
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max',
+    # 为什么 mode 从 'max' 改成 'min'：调度与早停的信号从「验证准确率」改成
+    # 「验证损失」。验证集只有 345 张，1 个样本 = 0.29% 的准确率分辨率，
+    # 用 acc 做信号会被噪声牵着走；loss 是连续量，分辨率高得多。
+    # （本仓库「已知限制」第 5 条的修复 —— 原来迁移版 best 出现在第 0 轮、
+    #   之后 8 轮 val acc 都在噪声区间内波动，就是这个信号太粗导致的）
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min',
                                                            factor=0.5, patience=5)
 
     model = model.to(device)
     best_model_wts = copy.deepcopy(model.state_dict())
 
+    # 变量 best_loss：float，历史最低验证损失，作为选模与早停的依据。
+    #   例：0.1823
+    # 为什么用 float('inf') 而不是 0.0：loss 越小越好，用无穷大保证第 0 轮
+    #   一定会刷新一次记录，不会因为初始值选错而永远不保存模型。
+    best_loss = float('inf')
+    # 变量 best_acc：float，只用于打印「最优轮对应的验证准确率」，不参与选模。
     best_acc = 0.0
     early_stop_patience = 8
     epochs_no_improve = 0
@@ -152,16 +174,19 @@ def train_model_process(model, train_dataloader, val_dataloader, num_epochs):
         print('{} Train Loss: {:.4f} Train Acc: {:.4f}'.format(epoch, train_loss_all[-1], train_acc_all[-1]))
         print('{} Val Loss: {:.4f} Val Acc: {:.4f}'.format(epoch, val_loss_all[-1], val_acc_all[-1]))
 
-        scheduler.step(val_acc_all[-1])
+        # 学习率调度：根据验证损失调整（loss 越低越好 → mode='min'）
+        scheduler.step(val_loss_all[-1])
 
-        if val_acc_all[-1] > best_acc:
+        # 选模：以验证损失为准，同时记下该轮的验证准确率用于打印
+        if val_loss_all[-1] < best_loss:
+            best_loss = val_loss_all[-1]
             best_acc = val_acc_all[-1]
             best_model_wts = copy.deepcopy(model.state_dict())
             epochs_no_improve = 0
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= early_stop_patience:
-                print("Early stopping: 连续 {} 轮验证准确率无提升，停止训练。".format(early_stop_patience))
+                print("Early stopping: 连续 {} 轮验证损失无下降，停止训练。".format(early_stop_patience))
                 break
 
         time_use = time.time() - since
@@ -171,7 +196,8 @@ def train_model_process(model, train_dataloader, val_dataloader, num_epochs):
     model.load_state_dict(best_model_wts)
     os.makedirs(MODEL_DIR, exist_ok=True)
     torch.save(best_model_wts, BEST_MODEL_PATH)
-    print('最优模型已保存到: {}'.format(BEST_MODEL_PATH))
+    print('最优模型（val loss = {:.4f}，对应 val acc = {:.4f}）已保存到: {}'.format(
+        best_loss, best_acc, BEST_MODEL_PATH))
 
     train_process = pd.DataFrame(data={"epoch": range(len(train_loss_all)),
                                        "train_loss_all": train_loss_all,
@@ -182,8 +208,14 @@ def train_model_process(model, train_dataloader, val_dataloader, num_epochs):
     return train_process
 
 
-def matplot_acc_loss(train_process):
-    plt.figure(figsize=(12, 4))
+def matplot_acc_loss(train_process, save_path=None):
+    # 方法签名 -> None
+    #   作用：画「loss 双线 + acc 双线」两个子图，可选落盘
+    #   关键参数：save_path —— str 或 None。传路径则先 savefig 落盘再弹窗；
+    #             传 None 则只弹窗（保持原有行为）
+    #   坑：plt.show() 在无 GUI 环境（服务器/容器）会阻塞或报错，
+    #       此时设 MPLBACKEND=Agg 可跳过弹窗、只走 savefig 分支。
+    fig = plt.figure(figsize=(12, 4))
     plt.subplot(1, 2, 1)
     plt.plot(train_process['epoch'], train_process.train_loss_all, 'ro-', label="Train Loss")
     plt.plot(train_process['epoch'], train_process.val_loss_all, 'bs-', label="Val Loss")
@@ -197,11 +229,25 @@ def matplot_acc_loss(train_process):
     plt.legend()
     plt.xlabel("Epoch")
     plt.ylabel("Acc")
+
+    # 为什么先 savefig 再 show：show() 是阻塞调用，用户关窗后才返回。
+    # 先落盘可以保证「关了窗也拿到图」，也避免无 GUI 环境下 show 失败导致图丢失。
+    # （本仓库「已知限制」第 7 条的修复：原来只有 plt.show()，曲线只能靠窗口截图）
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        fig.savefig(save_path, dpi=120, bbox_inches='tight')
+        print('训练曲线已保存到: {}'.format(save_path))
     plt.show()
+    plt.close(fig)
 
 
 if __name__ == "__main__":
+    # 全局随机种子：覆盖模型初始化 + 数据增强 + DataLoader 顺序。
+    # 想跑多种子实验时改这里的数字即可（例如 42 / 43 / 44）。
+    set_seed(42)
     model = build_transfer_model()  # 默认解冻 fc + 最后 3 个 Inception block
     train_dataloader, val_dataloader = train_val_data_process()
     train_process = train_model_process(model, train_dataloader, val_dataloader, num_epochs=30)
-    matplot_acc_loss(train_process)
+    # 新图用 curve_*.png 命名，与 result/ 下 5 张历史截图（窗口截图）区分开
+    matplot_acc_loss(train_process,
+                     save_path=os.path.join(PROJECT_DIR, 'result', 'curve_transfer.png'))

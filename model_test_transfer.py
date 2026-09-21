@@ -47,7 +47,9 @@ def test_data_process(test_root=TEST_ROOT):
     test_data = ImageFolder(root=test_root, transform=test_transform)
     test_dataloader = Data.DataLoader(dataset=test_data,
                                       batch_size=1,
-                                      shuffle=True,
+                                      shuffle=False,  # 为什么改成 False：测试不依赖顺序，
+                                                      # 但 shuffle 会让每次运行的样本顺序不同，
+                                                      # 控制台输出与逐样本结果就无法逐行对照
                                       num_workers=0)
     return test_dataloader, test_data.classes
 
